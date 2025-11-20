@@ -1,0 +1,11 @@
+# 1. First, create .gitignore file
+# Create a file named ".gitignore" in your project root with this content:
+
+# .gitignore content:
+node_modules/
+.env
+uploads/
+backups/
+*.log
+.DS_Store
+.vscode/

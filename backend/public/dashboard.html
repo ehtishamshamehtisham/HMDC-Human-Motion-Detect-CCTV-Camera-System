@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HMDC Dashboard (Option A)</title>
+<!-- TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+
+<!-- MoveNet Pose Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+<script>
+  // Enable WebGL backend for speed
+  tf.setBackend('webgl');
+</script>
+
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* minimal embedded styles for clarity */
+    body { font-family: Inter, system-ui, Arial; padding: 18px; background:#f7f8fb; color:#111 }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px }
+    h1 { margin:0; font-size:1.2rem }
+    .btn { padding:8px 12px; border-radius:8px; border:none; cursor:pointer; background:#2563eb; color:white }
+    .btn.ghost { background:transparent; color:#333; border:1px solid #ddd }
+    #status-box { padding:8px 12px; border-radius:8px; color:white; font-weight:600 }
+    #status-box.recording { background:#16a34a } /* green */
+    #status-box.idle { background:#6b7280 }      /* gray */
+    #main { display:flex; gap:18px; align-items:flex-start }
+    #left { width:540px }
+    #stream, canvas { width:540px; border-radius:8px; border:2px solid #111; display:block; background:#000 }
+    #controls { margin-top:8px; display:flex; gap:8px; align-items:center }
+    #recordings { flex:1; min-width:320px; max-width:640px }
+    .recording-item { background:#fff; padding:10px; border-radius:8px; margin-bottom:10px; border:1px solid #eee }
+    .small { font-size:0.85rem; color:#555 }
+    .muted { color:#666; font-size:0.85rem }
+    .hidden { display:none !important; }
+    footer { margin-top:16px; font-size:0.9rem; color:#666 }
+    
+
+.storage-widget {
+    background: #f5f5f5;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+.storage-bar {
+    width: 100%;
+    height: 20px;
+    background: #ddd;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.storage-fill {
+    height: 100%;
+    background: #44ff44;
+    transition: width 0.3s ease;
+}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Human Motion Detection Camera  System</h1>
+      <div class="muted">System Detect Only Human Motion and start recording and save on your Personal Dashboard</div>
+       
+    </div>
+    <div style="display:flex; gap:8px; align-items:center">
+      <div id="status-box" class="idle">Status: Idle</div>
+      <button id="logoutBtn" class="btn ghost">Logout</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <div id="left">
+      <div style="font-weight:600; margin-bottom:8px">Live webcam & motion</div>
+
+      <!-- live <video> shown (will be replaced with stream) -->
+      <video id="stream" autoplay playsinline muted  ></video>
+
+      <!-- a hidden canvas used for frame-diff motion detection -->
+      <canvas id="motionCanvas" class="hidden"></canvas>
+
+      <div id="controls">
+        <div class="small">Sensitivity:
+          <input id="sensitivity" type="range" min="10" max="80" value="28" style="vertical-align:middle">
+        </div>
+        <div class="small">Inactivity (s):
+          <input id="inactivity" type="number" min="1" max="10" value="4" style="width:60px; vertical-align:middle">
+        </div>
+        <div style="flex:1"></div>
+        <div class="small">Format: WebM (browser)</div>
+      </div>
+    </div>
+
+    <div id="recordings">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">
+        <strong>Your Recordings</strong>
+        <button id="refreshBtn" class="btn ghost">Refresh</button>
+      </div>
+      <div id="recordingsList" class="small">Loading...</div>
+    </div>
+  </div>
+  <div>
+   
+    
+  </div>
+  <footer>
+
+    <h2>Before Start:</h2>
+       <p>---Open console and make sure that the console consists this line <h1>Multi-pose detector ready - supports multiple users</h1></p>
+       <p>--If Not Check Ur Internet connection and wait for 10 seconds to load</p>
+       <p>-Keep ur device in some distance for better detection</p>
+       <p>It will work for multiple users too,right now default 10 peoples</p>
+       <p>If u Move then the sysstem detect ur movement and start recording ,if u stop moving then it wait for 6 to 10s the system think no motion or movement so it stop recording and save in ur dashboard</p>
+       <p>Here u can delete or download recordings</p>
+       <div class="storage-widget">
+    <h3>Storage Usage</h3>
+    <div class="storage-bar">
+        <div class="storage-fill" id="storageFill"></div>
+    </div>
+    <p id="storageText">Loading storage info...</p>
+</div>
+    <div class="small">Notes: Make sure you are logged in. If uploads fail, check backend logs and CORS.</div>
+  </footer>
+
+  <script>
+  // ======= CONFIG =======
+  const UPLOAD_URL = '/api/recordings/upload'; // backend upload
+  const LIST_URL = '/api/recordings';
+  const STATUS_POLL_INTERVAL = 1000;  // ms for status indicator
+  const RECORDINGS_REFRESH = 5000;    // ms to refresh list
+
+  // ======= AUTH CHECK =======
+  const token = localStorage.getItem('hmdc_token');
+  if (!token) {
+    // no JWT — force login
+    alert('Not logged in. Redirecting to login.');
+    window.location.href = 'index.html';
+    throw new Error('no token');
+  }
+
+  // ======= UI elements =======
+  const videoEl = document.getElementById('stream');
+  const canvas = document.getElementById('motionCanvas');
+  const statusBox = document.getElementById('status-box');
+  const sensitivityEl = document.getElementById('sensitivity');
+  const inactivityEl = document.getElementById('inactivity');
+  const recordingsList = document.getElementById('recordingsList');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  // ======= Motion detection + MediaRecorder =======
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let recordingBlobs = [];
+  let isRecording = false;
+  let lastMotionAt = 0;
+  let inactivitySecs = Number(inactivityEl.value);
+  let sensitivity = Number(sensitivityEl.value); // lower = more sensitive
+  let motionCheckInterval = null;
+
+// ===== pose-based human-motion detection using MoveNet =====
+let detector = null;
+let poseLoopInterval = null;
+let prevKeypointsMap = {};   // map personId -> keypoints array
+const POSE_POLL_MS = 60;    // run pose detection ~4 FPS (tune if needed)
+const MIN_MOVING_KEYPOINTS_POSE = 1; 
+const KEYPOINT_MOVE_THRESHOLD = 17;  
+const MIN_POSE_SCORE = 0.25;
+
+// Keypoint connections for drawing skeleton (same as Python)
+const KEYPOINT_CONNECTIONS = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 11], [6, 12], [11, 12],
+    [11, 13], [13, 15],
+    [12, 14], [14, 16]
+];
+
+
+  // canvas contexts
+  const ctx = canvas.getContext('2d');
+
+  // helper: set status badge
+  function setStatus(s) {
+    if (s === 'recording') {
+      statusBox.textContent = 'Status: Recording';
+      statusBox.className = 'recording';
+    } else {
+      statusBox.textContent = 'Status: Idle';
+      statusBox.className = 'idle';
+    }
+  }
+
+  // start webcam
+  async function startCamera() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video: { width: 720, height: 480 }, audio: true });
+      videoEl.srcObject = mediaStream;
+
+      // setup canvas size to match video
+     videoEl.addEventListener('loadedmetadata', async () => {
+    canvas.width = videoEl.videoWidth || 640;
+    canvas.height = videoEl.videoHeight || 480;
+
+    await initPoseDetector();  // load MoveNet
+    startPoseLoop();           // start human-only motion detection
+});
+
+      //startMotionLoop();
+
+    } catch (e) {
+      alert('Camera error: ' + e.message);
+      console.error(e);
+    }
+  }
+
+  // start periodic frame-diff check
+  //let previousImageData = null;
+  /*function startMotionLoop() {
+    if (motionCheckInterval) clearInterval(motionCheckInterval);
+    motionCheckInterval = setInterval(checkMotionFrame, 120); // about 8 fps for motion test
+  }*/
+
+  /*function checkMotionFrame() {
+    if (!videoEl.videoWidth) return;
+
+    // draw current frame to canvas
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    if (!previousImageData) {
+      previousImageData = imageData;
+      return;
+    }
+
+    // compute difference
+    let diff = 0;
+    const px = imageData.data;
+    const prev = previousImageData.data;
+    // sample pixels to reduce CPU: step through every 4th pixel block using step
+    const step = 8; // increase to make less CPU, decrease for more sensitivity
+    for (let i = 0; i < px.length; i += 4 * step) {
+      const r = Math.abs(px[i] - prev[i]);
+      const g = Math.abs(px[i+1] - prev[i+1]);
+      const b = Math.abs(px[i+2] - prev[i+2]);
+      // combine color diffs
+      const lum = (r + g + b) / 3;
+      if (lum > sensitivity) diff++;
+    }
+
+    previousImageData = imageData;
+
+    // threshold: if many pixels changed -> motion
+    const motionDetected = diff > 30; // tuneable; user slider helps
+    if (motionDetected) {
+      lastMotionAt = Date.now();
+      if (!isRecording) startRecording();
+    }
+
+    // if recording and no motion for inactivity, stop
+    if (isRecording && (Date.now() - lastMotionAt > inactivitySecs * 1000)) {
+      stopRecording();
+    }
+  }*/
+
+  // initialize moveNet detector
+// In your startCamera function, update the detector config:
+async function initPoseDetector() {
+  try {
+    const pd = window.poseDetection;
+    if (!pd) throw new Error("pose-detection model not found.");
+    
+    // MULTI-USER CONFIG
+    const config = {
+      modelType: pd.movenet.modelType.MULTIPOSE_LIGHTNING,  // ← CHANGE THIS
+      enableTracking: true,
+      trackerType: pd.TrackerType.Keypoint,
+      maxPoses: 10,  // Maximum number of people to detect
+      minPoseScore: 0.2
+    };
+    
+    detector = await pd.createDetector(pd.SupportedModels.MoveNet, config);
+    console.log("Multi-pose detector ready - supports multiple users");
+  } catch (e) {
+    console.error("Failed to init multi-pose detector:", e);
+    // Fallback to single pose
+    await initSinglePoseDetector();
+  }
+}
+
+// Fallback for single pose
+async function initSinglePoseDetector() {
+  const pd = window.poseDetection;
+  const config = { 
+    modelType: pd.movenet.modelType.SINGLEPOSE_LIGHTNING,
+    enableSmoothing: true
+  };
+  detector = await pd.createDetector(pd.SupportedModels.MoveNet, config);
+  console.log("Single-pose detector ready (fallback)");
+}
+
+
+
+  // start MediaRecorder
+  function startRecording() {
+    if (!mediaStream) return;
+    // ensure audio + video included
+    try {
+      const options = chooseSupportedMimeType();
+      recordingBlobs = [];
+      mediaRecorder = new MediaRecorder(mediaStream, options);
+    } catch (e) {
+      console.error('MediaRecorder create error', e);
+      alert('Unable to create MediaRecorder: ' + e.message);
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) recordingBlobs.push(ev.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      // assemble blob and upload
+      const blob = new Blob(recordingBlobs, { type: recordingBlobs[0]?.type || 'video/webm' });
+      uploadBlob(blob);
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    setStatus('recording');
+    console.log('MediaRecorder started, mimeType=', mediaRecorder.mimeType);
+  }
+
+// run pose detection
+
+
+async function checkPoseFrame() {
+  if (!videoEl || !videoEl.videoWidth || !detector) return;
+
+  try {
+    const poses = await detector.estimatePoses(videoEl, {
+      maxPoses: 10,
+      flipHorizontal: false
+    });
+
+    let humanMotionDetected = false;
+    const currentKeypointsMap = {};
+
+    // Process each detected person (like Python's for loop)
+    poses.forEach((pose, personId) => {
+      if (!pose?.keypoints) return;
+      
+      const keypoints = pose.keypoints.map(k => ({
+        x: k.x,
+        y: k.y,
+        score: k.score || 0
+      }));
+      
+      currentKeypointsMap[personId] = keypoints;
+
+      // Draw keypoints and connections (optional - for visualization)
+      drawSkeleton(pose.keypoints);
+    });
+
+    // Motion detection logic (similar to Python)
+    for (const personId of Object.keys(currentKeypointsMap)) {
+      const currentKeypoints = currentKeypointsMap[personId];
+      const prevKeypoints = prevKeypointsMap[personId];
+
+      if (!prevKeypoints) continue;
+
+      let movingCount = 0;
+      
+      // Check each keypoint pair
+      for (let i = 0; i < currentKeypoints.length; i++) {
+        const current = currentKeypoints[i];
+        const prev = prevKeypoints[i];
+        
+        // Filter by confidence score (like Python's conf threshold)
+        if (current.score < MIN_POSE_SCORE || prev.score < MIN_POSE_SCORE) {
+          continue;
+        }
+
+        // Calculate movement distance (Euclidean distance like Python)
+        const dx = current.x - prev.x;
+        const dy = current.y - prev.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Check if movement exceeds threshold
+        if (distance > KEYPOINT_MOVE_THRESHOLD) {
+          movingCount++;
+        }
+      }
+
+      // Trigger recording if enough keypoints are moving
+      if (movingCount >= MIN_MOVING_KEYPOINTS_POSE) {
+        humanMotionDetected = true;
+        break; // No need to check other people
+      }
+    }
+
+    // Update previous keypoints for next frame
+    prevKeypointsMap = currentKeypointsMap;
+
+    // Recording control logic
+    if (humanMotionDetected) {
+      lastMotionAt = Date.now();
+      if (!isRecording) startRecording();
+    } else {
+      // Stop recording after inactivity
+      if (isRecording && (Date.now() - lastMotionAt > inactivitySecs * 1000)) {
+        stopRecording();
+      }
+    }
+
+  } catch (e) {
+    console.error("Pose detection error", e);
+  }
+}
+// Draw skeleton like Python version (for visualization)
+function drawSkeleton(keypoints) {
+  const canvas = document.getElementById('motionCanvas');
+  const ctx = canvas.getContext('2d');
+  
+  if (!canvas.width || !canvas.height) return;
+  
+  // Clear previous drawings
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Draw keypoints
+  keypoints.forEach(kp => {
+    if (kp.score >= MIN_POSE_SCORE) {
+      ctx.beginPath();
+      ctx.arc(kp.x, kp.y, 4, 0, 2 * Math.PI);
+      ctx.fillStyle = 'green';
+      ctx.fill();
+    }
+  });
+  
+  // Draw connections
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 1;
+  
+  KEYPOINT_CONNECTIONS.forEach(connection => {
+    const [idx1, idx2] = connection;
+    const kp1 = keypoints[idx1];
+    const kp2 = keypoints[idx2];
+    
+    if (kp1 && kp2 && kp1.score >= MIN_POSE_SCORE && kp2.score >= MIN_POSE_SCORE) {
+      ctx.beginPath();
+      ctx.moveTo(kp1.x, kp1.y);
+      ctx.lineTo(kp2.x, kp2.y);
+      ctx.stroke();
+    }
+  });
+}
+
+
+  // start pose loop
+function startPoseLoop() {
+  if (!detector) return;
+  if (poseLoopInterval) return; // already running
+  poseLoopInterval = setInterval(checkPoseFrame, POSE_POLL_MS);
+}
+
+
+  // stop MediaRecorder
+  function stopRecording() {
+    if (!mediaRecorder) return;
+    try { mediaRecorder.stop(); } catch (e) { console.warn(e); }
+    isRecording = false;
+    setStatus('idle');
+  }
+
+  // pick best mime
+  function chooseSupportedMimeType() {
+    const types = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264,opus',
+      'video/mp4' // browsers rarely support mp4 recording
+    ];
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+        return { mimeType: t };
+      }
+    }
+    return {};
+  }
+
+  // upload blob to backend using JWT
+  async function uploadBlob(blob) {
+    const fileName = new Date().toISOString().replace(/[:.]/g,'') + '.webm';
+    const fd = new FormData();
+    fd.append('recording', blob, fileName);
+
+    try {
+      const res = await fetch(UPLOAD_URL, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: fd
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(()=>res.statusText);
+        console.error('Upload failed', res.status, txt);
+        alert('Upload failed: ' + res.status + ' — check server logs.');
+        return;
+      }
+      const j = await res.json();
+      console.log('Upload success', j);
+      // refresh recordings list immediately
+      loadRecordings();
+    } catch (e) {
+      console.error('Upload error', e);
+      alert('Upload error: ' + e.message);
+    }
+  }
+
+  // ======= Recordings list UI =======
+// Replace your existing loadRecordings() with this function
+async function loadRecordings() {
+  const listEl = document.getElementById('recordingsList');
+  listEl.innerHTML = '<div class="small">Loading...</div>';
+
+  // guard
+  if (!token) {
+    listEl.innerHTML = '<div class="small">Not logged in.</div>';
+    return;
+  }
+
+  try {
+    const res = await fetch(LIST_URL, { headers: { 'Authorization': 'Bearer ' + token }});
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>res.statusText);
+      listEl.innerHTML = `<div class="small">Could not load recordings (HTTP ${res.status})</div>`;
+      console.error('Recordings list failed:', res.status, txt);
+      return;
+    }
+
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      listEl.innerHTML = '<div class="small">No recordings yet.</div>';
+      return;
+    }
+
+    // Clear and render
+    listEl.innerHTML = '';
+    for (const r of data) {
+      // id field compatibility
+      const id = r._id || r.id || (r._doc && r._doc._id) || '';
+      const originalName = r.originalName || r.filename || (r.fileName ? r.fileName.split('/').pop() : 'recording');
+      const ts = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+      const sizeStr = r.size ? (Math.round(r.size / 1024) + ' KB') : '';
+
+      const item = document.createElement('div');
+      item.className = 'recording-item';
+      item.innerHTML = `
+        <div style="font-weight:600">${escapeHtml(originalName)}</div>
+        <div class="small">Uploaded: ${ts} ${sizeStr ? ' • ' + sizeStr : ''}</div>
+        <div style="margin-top:8px;"></div>
+      `;
+      listEl.appendChild(item);
+
+      const ctrl = item.querySelector('div[style^="margin-top"]');
+
+      // Download button (gets signed URL then opens it)
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'btn ghost';
+      dlBtn.textContent = 'Download';
+      dlBtn.addEventListener('click', async () => {
+        try {
+          dlBtn.disabled = true;
+          dlBtn.textContent = 'Preparing...';
+          const resp = await fetch(`${LIST_URL}/download/${id}`, { // LIST_URL is '/api/recordings'
+            headers: { 'Authorization': 'Bearer ' + token }
+          });
+          if (!resp.ok) {
+            const txt = await resp.text().catch(()=>resp.statusText);
+            alert('Cannot get download URL: ' + resp.status + ' — ' + txt);
+            dlBtn.disabled = false;
+            dlBtn.textContent = 'Download';
+            return;
+          }
+          const j = await resp.json();
+          if (j.downloadUrl) {
+            // open signed url in new tab to trigger download
+            window.open(j.downloadUrl, '_blank');
+          } else {
+            alert('Server did not return a download URL.');
+          }
+        } catch (err) {
+          console.error('Download error', err);
+          alert('Download error: ' + (err.message || err));
+        } finally {
+          dlBtn.disabled = false;
+          dlBtn.textContent = 'Download';
+        }
+      });
+      ctrl.appendChild(dlBtn);
+
+      // Delete button
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn';
+      delBtn.style.marginLeft = '8px';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', async () => {
+        if (!confirm('Delete this recording?')) return;
+        try {
+          delBtn.disabled = true;
+          const resp = await fetch(`/api/recordings/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+          });
+          if (!resp.ok) {
+            const txt = await resp.text().catch(()=>resp.statusText);
+            alert('Delete failed: ' + resp.status + ' — ' + txt);
+            delBtn.disabled = false;
+            return;
+          }
+          // remove item from UI
+          item.remove();
+        } catch (err) {
+          console.error('Delete error', err);
+          alert('Delete error: ' + (err.message || err));
+          delBtn.disabled = false;
+        }
+      });
+      ctrl.appendChild(delBtn);
+    }
+
+  } catch (err) {
+    console.error('loadRecordings error', err);
+    listEl.innerHTML = '<div class="small">Error loading recordings.</div>';
+  }
+}
+
+// small helper to escape HTML when inserting names
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/[&<>"'`=\/]/g, function (c) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','`':'&#x60;','=':'&#x3D;'})[c];
+  });
+}
+
+
+
+  // ======= Controls and events =======
+  /*refreshBtn.addEventListener('click', loadRecordings);
+  logoutBtn.addEventListener('click', () => {
+    localStorage.removeItem('hmdc_token');
+    window.location.href = 'index.html';
+  });*/
+
+  logoutBtn.addEventListener('click', async () => {
+  // stop loops and stream
+  if (poseLoopInterval) { clearInterval(poseLoopInterval); poseLoopInterval = null; }
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try { mediaRecorder.stop(); } catch(e){}
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  if (detector && detector.dispose) detector.dispose();
+  localStorage.removeItem('hmdc_token');
+  window.location.href = 'index.html';
+});
+
+
+  sensitivityEl.addEventListener('input', () => {
+    sensitivity = Number(sensitivityEl.value);
+  });
+  inactivityEl.addEventListener('change', () => {
+    inactivitySecs = Number(inactivityEl.value);
+  });
+
+  // small periodic checks (status indicator uses local isRecording)
+  setInterval(() => {
+    setStatus(isRecording ? 'recording' : 'idle');
+  }, STATUS_POLL_INTERVAL);
+
+  // refresh recordings periodically
+  setInterval(loadRecordings, RECORDINGS_REFRESH);
+
+  // start everything
+  (async () => {
+    await startCamera();
+    loadRecordings();
+  })();
+
+  </script>
+  <script>
+// Check storage usage on page load
+async function checkStorageUsage() {
+    try {
+        const response = await fetch('/api/recordings/storage/usage', {
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch storage');
+        
+        const data = await response.json();
+        
+        // Update UI
+        document.getElementById('storageText').textContent = 
+            `Used: ${data.usedMB}MB of ${data.maxMB}MB (${data.percentage}%)`;
+        
+        // Update progress bar
+        document.getElementById('storageFill').style.width = `${data.percentage}%`;
+        
+        // Change color based on usage
+        if (data.percentage > 90) {
+            document.getElementById('storageFill').style.background = '#ff4444';
+        } else if (data.percentage > 70) {
+            document.getElementById('storageFill').style.background = '#ffaa00';
+        } else {
+            document.getElementById('storageFill').style.background = '#44ff44';
+        }
+        
+    } catch (error) {
+        console.error('Storage check error:', error);
+        document.getElementById('storageText').textContent = 'Error loading storage info';
+    }
+}
+
+// Call when page loads
+document.addEventListener('DOMContentLoaded', checkStorageUsage);
+</script>
+</body>
+</html>
