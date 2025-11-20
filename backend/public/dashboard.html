@@ -61,6 +61,115 @@
     transition: width 0.3s ease;
 }
 
+/* Responsive Design */
+@media (max-width: 1024px) {
+  #main {
+    flex-direction: column;
+    gap: 24px;
+  }
+  
+  #left, #recordings {
+    width: 100%;
+    max-width: 100%;
+  }
+  
+  #stream, canvas {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 12px;
+  }
+  
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  
+  header > div {
+    width: 100%;
+  }
+  
+  #controls {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  
+  .storage-widget {
+    padding: 12px;
+    margin: 15px 0;
+  }
+  
+  footer {
+    margin-top: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 8px;
+  }
+  
+  h1 {
+    font-size: 1.1rem;
+  }
+  
+  .btn {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+  }
+  
+  #status-box {
+    padding: 6px 10px;
+    font-size: 0.9rem;
+  }
+  
+  #controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  #sensitivity, #inactivity {
+    margin-left: 8px;
+  }
+  
+  .storage-widget h3 {
+    font-size: 1rem;
+  }
+  
+  footer p {
+    font-size: 0.8rem;
+  }
+}
+
+/* Ensure video maintains aspect ratio */
+#stream, canvas {
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 4/3;
+}
+
+/* Improve touch targets for mobile */
+.btn {
+  min-height: 36px;
+  min-width: 44px;
+}
+
+/* Better scrolling on mobile */
+#recordingsList {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Responsive text */
+.muted, .small {
+  font-size: clamp(0.75rem, 2vw, 0.85rem);
+}
+
   </style>
 </head>
 <body>
