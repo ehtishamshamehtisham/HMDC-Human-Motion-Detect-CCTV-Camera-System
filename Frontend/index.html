@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>HMDC — Login / Register</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="auth.js" defer></script>
+  <script>
+    // index.js behaviour
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('authForm');
+      const toggleLink = document.getElementById('toggleMode');
+      const modeTitle = document.getElementById('modeTitle');
+      const nameRow = document.getElementById('nameRow');
+      const errBox = document.getElementById('errBox');
+
+      // If already logged in, send to dashboard
+      if (auth.isAuthenticated()) {
+        go('dashboard.html');
+        return;
+      }
+
+      let mode = 'login'; // or 'register'
+      function setMode(m) {
+        mode = m;
+        modeTitle.textContent = (mode === 'login') ? 'Login to HMDC' : 'Register new account';
+        nameRow.style.display = (mode === 'register') ? 'block' : 'none';
+        toggleLink.textContent = (mode === 'login') ? 'Need an account? Register' : 'Already have account? Login';
+        errBox.classList.add('hidden');
+      }
+      setMode(mode);
+
+      toggleLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        setMode(mode === 'login' ? 'register' : 'login');
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errBox.classList.add('hidden');
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value.trim();
+        const name = document.getElementById('fullname').value.trim();
+        if (!email || !password) {
+          errBox.textContent = 'Email and password required';
+          errBox.classList.remove('hidden');
+          return;
+        }
+
+        const url = (mode === 'login') ? '/api/auth/login' : '/api/auth/register';
+        const payload = (mode === 'login') ? { email, password } : { name, email, password };
+
+        const { ok, body } = await fetchJson(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!ok) {
+          errBox.textContent = (body && body.message) ? body.message : 'Request failed';
+          errBox.classList.remove('hidden');
+          return;
+        }
+
+        // success: backend returns { token, user }
+        if (body.token) {
+          auth.saveToken(body.token);
+          go('dashboard.html');
+        } else {
+          errBox.textContent = 'No token received from server';
+          errBox.classList.remove('hidden');
+        }
+      });
+    });
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>HMDC</h1>
+      <div class="small">Secure Dashboard — login required</div>
+    </div>
+
+    <div class="form card">
+      <h2 id="modeTitle">Login to HMDC</h2>
+      <div id="errBox" class="alert hidden"></div>
+
+      <form id="authForm">
+        <div id="nameRow" style="display:none">
+          <input id="fullname" class="input" placeholder="Full name (for register)">
+        </div>
+
+        <input id="email" class="input" placeholder="Email" type="email" required>
+        <input id="password" class="input" placeholder="Password" type="password" required>
+
+        <div class="row">
+          <button class="btn" type="submit">Submit</button>
+          <button class="btn secondary" type="button" onclick="document.getElementById('email').value=''; document.getElementById('password').value='';">Clear</button>
+        </div>
+      </form>
+
+      <div style="margin-top:10px">
+        <a href="#" id="toggleMode">Need an account? Register</a>
+      </div>
+    </div>
+
+    <div class="footer small">
+      Host this folder as static files (or put inside your Express public folder). After login, you'll be redirected to the protected dashboard.
+    </div>
+  </div>
+</body>
+</html>
