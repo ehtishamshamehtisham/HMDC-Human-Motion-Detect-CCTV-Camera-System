@@ -241,8 +241,12 @@
 
   <script>
   // ======= CONFIG =======
-  const UPLOAD_URL = '/api/recordings/upload'; // backend upload
-  const LIST_URL = '/api/recordings';
+  
+const API_BASE = 'https://034da1dd-f26f-491a-ad83-37fab17c7499-00-32g4jj67qbrrx.pike.replit.dev/api';
+const UPLOAD_URL = API_BASE + '/recordings/upload'; // backend upload
+const LIST_URL = API_BASE + '/recordings';
+   // backend upload
+
   const STATUS_POLL_INTERVAL = 1000;  // ms for status indicator
   const RECORDINGS_REFRESH = 5000;    // ms to refresh list
 
@@ -725,7 +729,7 @@ async function loadRecordings() {
         if (!confirm('Delete this recording?')) return;
         try {
           delBtn.disabled = true;
-          const resp = await fetch(`/api/recordings/${id}`, {
+          const resp = await fetch(`${API_BASE}/recordings/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': 'Bearer ' + token }
           });
@@ -811,7 +815,7 @@ function escapeHtml(s) {
 // Check storage usage on page load
 async function checkStorageUsage() {
     try {
-        const response = await fetch('/api/recordings/storage/usage', {
+        const response = await fetch(API_BASE + '/recordings/storage/usage', {
             headers: {
                 'Authorization': 'Bearer ' + localStorage.getItem('token')
             }
