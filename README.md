@@ -51,9 +51,13 @@ npm install jsonwebtoken bcryptjs or simple "npm install"
 4:create .env file in backend
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 MONGO_URI = "mongodb+srv://<your-atlas-user>:<your-password>@cluster.mongodb.net/hmdc"
+
 JWT_SECRET = "supersecretjwt"
+
 GRIDFS_BUCKET = "uploads"
+
 PORT = 3000
+
 """""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 In second Terminal,
 
