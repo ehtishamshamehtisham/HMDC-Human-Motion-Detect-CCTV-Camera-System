@@ -10,7 +10,10 @@ const recordingsRouter = require('./routes/recordings');
 const { initGridFS } = require('./lib/gridfs');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:3000', // or the port your frontend runs on
+  credentials: true
+}));
 app.use(express.json());
 
 // Serve public frontend

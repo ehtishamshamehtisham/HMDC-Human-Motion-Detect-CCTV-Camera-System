@@ -242,7 +242,7 @@
   <script>
   // ======= CONFIG =======
   
-const API_BASE = 'https://034da1dd-f26f-491a-ad83-37fab17c7499-00-32g4jj67qbrrx.pike.replit.dev/api';
+const API_BASE = 'http://localhost:3000/api'
 const UPLOAD_URL = API_BASE + '/recordings/upload'; // backend upload
 const LIST_URL = API_BASE + '/recordings';
    // backend upload
@@ -618,7 +618,7 @@ function startPoseLoop() {
     try {
       const res = await fetch(UPLOAD_URL, {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
+        'Authorization': 'Bearer ' + localStorage.getItem('hmdc_token'),
         body: fd
       });
 
@@ -686,38 +686,47 @@ async function loadRecordings() {
       const ctrl = item.querySelector('div[style^="margin-top"]');
 
       // Download button (gets signed URL then opens it)
-      const dlBtn = document.createElement('button');
-      dlBtn.className = 'btn ghost';
+      // Download button (direct blob download)
+const dlBtn = document.createElement('button');
+dlBtn.className = 'btn ghost';
+dlBtn.textContent = 'Download';
+dlBtn.addEventListener('click', async () => {
+  try {
+    dlBtn.disabled = true;
+    dlBtn.textContent = 'Downloading...';
+    
+    const resp = await fetch(`${LIST_URL}/stream/${id}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => resp.statusText);
+      alert('Download failed: ' + resp.status + ' — ' + txt);
+      dlBtn.disabled = false;
       dlBtn.textContent = 'Download';
-      dlBtn.addEventListener('click', async () => {
-        try {
-          dlBtn.disabled = true;
-          dlBtn.textContent = 'Preparing...';
-          const resp = await fetch(`${LIST_URL}/download/${id}`, { // LIST_URL is '/api/recordings'
-            headers: { 'Authorization': 'Bearer ' + token }
-          });
-          if (!resp.ok) {
-            const txt = await resp.text().catch(()=>resp.statusText);
-            alert('Cannot get download URL: ' + resp.status + ' — ' + txt);
-            dlBtn.disabled = false;
-            dlBtn.textContent = 'Download';
-            return;
-          }
-          const j = await resp.json();
-          if (j.downloadUrl) {
-            // open signed url in new tab to trigger download
-            window.open(j.downloadUrl, '_blank');
-          } else {
-            alert('Server did not return a download URL.');
-          }
-        } catch (err) {
-          console.error('Download error', err);
-          alert('Download error: ' + (err.message || err));
-        } finally {
-          dlBtn.disabled = false;
-          dlBtn.textContent = 'Download';
-        }
-      });
+      return;
+    }
+
+    // Create blob and download directly
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = originalName; // Use the original filename
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    
+  } catch (err) {
+    console.error('Download error', err);
+    alert('Download error: ' + (err.message || err));
+  } finally {
+    dlBtn.disabled = false;
+    dlBtn.textContent = 'Download';
+  }
+});
       ctrl.appendChild(dlBtn);
 
       // Delete button
@@ -817,7 +826,7 @@ async function checkStorageUsage() {
     try {
         const response = await fetch(API_BASE + '/recordings/storage/usage', {
             headers: {
-                'Authorization': 'Bearer ' + localStorage.getItem('token')
+                'Authorization': 'Bearer ' + localStorage.getItem('hmdc_token')
             }
         });
         

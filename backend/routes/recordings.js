@@ -16,7 +16,7 @@ const {
 const router = express.Router();
 
 // Initialize GridFS when routes load
-initGridFS();
+//initGridFS();
 
 // Multer temp storage
 const upload = multer({ dest: os.tmpdir() });

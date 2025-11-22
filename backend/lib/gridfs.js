@@ -4,19 +4,24 @@ const fs = require('fs');
 
 let gridFSBucket;
 
-// Initialize GridFS Bucket
-const initGridFS = () => {
-  const db = mongoose.connection.db;
-  gridFSBucket = new GridFSBucket(db, {
-    bucketName: 'recordings'
-  });
+// Lazy initialization - gets GridFS bucket when needed
+const getGridFS = () => {
+  if (!gridFSBucket) {
+    if (!mongoose.connection.db) {
+      throw new Error('MongoDB not connected');
+    }
+    gridFSBucket = new GridFSBucket(mongoose.connection.db, {
+      bucketName: 'recordings'
+    });
+    console.log("GridFS Bucket initialized");
+  }
   return gridFSBucket;
 };
 
 // Upload file to GridFS
 const uploadToGridFS = (filePath, filename, metadata = {}) => {
   return new Promise((resolve, reject) => {
-    const uploadStream = gridFSBucket.openUploadStream(filename, {
+    const uploadStream = getGridFS().openUploadStream(filename, {
       metadata: metadata
     });
     
@@ -32,7 +37,7 @@ const uploadToGridFS = (filePath, filename, metadata = {}) => {
 // Download file from GridFS
 const downloadFromGridFS = (fileId, outputPath) => {
   return new Promise((resolve, reject) => {
-    const downloadStream = gridFSBucket.openDownloadStream(fileId);
+    const downloadStream = getGridFS().openDownloadStream(fileId);
     const writeStream = fs.createWriteStream(outputPath);
     
     downloadStream
@@ -44,18 +49,23 @@ const downloadFromGridFS = (fileId, outputPath) => {
 
 // Get file stream for direct download
 const getFileStream = (fileId) => {
-  return gridFSBucket.openDownloadStream(fileId);
+  return getGridFS().openDownloadStream(fileId);
 };
 
 // Delete file from GridFS
 const deleteFromGridFS = (fileId) => {
-  return gridFSBucket.delete(fileId);
+  return getGridFS().delete(fileId);
 };
 
 // Get file info
 const getFileInfo = async (fileId) => {
   const files = await mongoose.connection.db.collection('recordings.files').findOne({ _id: fileId });
   return files;
+};
+
+// Keep initGridFS for compatibility (but it just calls getGridFS)
+const initGridFS = () => {
+  return getGridFS();
 };
 
 module.exports = {
